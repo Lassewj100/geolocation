@@ -3,27 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Posisjon</title>
+    <title>Posisjon på kart</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body {
             font-family: system-ui, sans-serif;
+            margin: 0;
+            padding: 1rem;
+            background: #f0f2f5;
+            color: #1a1a1a;
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            margin: 0;
-            background: #f0f2f5;
-            color: #1a1a1a;
         }
         .kort {
             background: #fff;
             border: 1px solid #ddd;
             border-radius: 10px;
-            padding: 2rem;
-            text-align: center;
             box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-            max-width: 380px;
+            max-width: 500px;
             width: 100%;
+            padding: 1.5rem;
+            text-align: center;
         }
         button {
             background: #2563eb;
@@ -33,24 +35,33 @@
             font-size: 1rem;
             border-radius: 6px;
             cursor: pointer;
-            margin: 1.5rem 0;
+            margin: 1rem 0;
         }
         button:disabled {
             background: #94a3b8;
             cursor: wait;
         }
-        .koordinater {
-            font-size: 1.05rem;
+        .info {
+            font-size: 1rem;
             font-weight: 500;
             background: #f8fafc;
-            padding: 0.9rem;
+            padding: 0.8rem;
             border-radius: 6px;
             border: 1px solid #e2e8f0;
-            margin-top: 1rem;
-            word-break: break-word;
+            margin: 1rem 0;
         }
         .feil {
             color: #b91c1c;
+            background: #fff5f5;
+            border-color: #fecaca;
+        }
+        #kart {
+            height: 300px;
+            width: 100%;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            margin-top: 1rem;
+            display: none; /* vises når posisjon er klar */
         }
     </style>
 </head>
@@ -58,15 +69,47 @@
     <div class="kort">
         <h2>Min posisjon</h2>
         <button id="knapp">Vis posisjon</button>
-        <div id="resultat" class="koordinater" style="display: none;"></div>
+        <div id="info" class="info" style="display: none;"></div>
+        <div id="kart"></div>
     </div>
 
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         const knapp = document.getElementById('knapp');
-        const resultat = document.getElementById('resultat');
+        const info = document.getElementById('info');
+        const kartBeholder = document.getElementById('kart');
+        let kart = null;
+        let marker = null;
 
         function vibrer(monster) {
             if (navigator.vibrate) navigator.vibrate(monster);
+        }
+
+        function opprettKart(lat, lng) {
+            // Fjern eksisterende kart hvis det allerede finnes
+            if (kart) {
+                kart.remove();
+                kart = null;
+            }
+
+            // Vis kartbeholderen
+            kartBeholder.style.display = 'block';
+
+            // Opprett kart sentrert på posisjonen
+            kart = L.map('kart').setView([lat, lng], 15);
+
+            // Legg til OpenStreetMap-fliser
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            }).addTo(kart);
+
+            // Legg til markør
+            marker = L.marker([lat, lng]).addTo(kart)
+                .bindPopup(`<b>Min posisjon</b><br>${lat.toFixed(6)}, ${lng.toFixed(6)}`)
+                .openPopup();
+
+            // Tving kartet til å oppdatere størrelsen (løser renderingsproblemer)
+            setTimeout(() => kart.invalidateSize(), 100);
         }
 
         function visPosisjon(posisjon) {
@@ -75,18 +118,31 @@
             const latRetning = lat >= 0 ? 'N' : 'S';
             const lngRetning = lng >= 0 ? 'E' : 'W';
 
-            resultat.style.display = 'block';
-            resultat.classList.remove('feil');
-            resultat.innerHTML = 
+            // Vis tekstinformasjon
+            info.style.display = 'block';
+            info.classList.remove('feil');
+            info.innerHTML = 
                 `Breddegrad: ${Math.abs(lat).toFixed(6)}° ${latRetning}<br>
                  Lengdegrad: ${Math.abs(lng).toFixed(6)}° ${lngRetning}`;
+
+            // Opprett/oppdater kart
+            opprettKart(lat, lng);
+
             vibrer(200);
         }
 
         function visFeil(melding) {
-            resultat.style.display = 'block';
-            resultat.classList.add('feil');
-            resultat.textContent = melding;
+            info.style.display = 'block';
+            info.classList.add('feil');
+            info.textContent = melding;
+
+            // Skjul kartet ved feil
+            kartBeholder.style.display = 'none';
+            if (kart) {
+                kart.remove();
+                kart = null;
+            }
+
             vibrer([150, 80, 150]);
         }
 
