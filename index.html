@@ -35,7 +35,7 @@
             font-size: 1rem;
             border-radius: 6px;
             cursor: pointer;
-            margin: 1rem 0;
+            margin: 0.5rem;
         }
         button:disabled {
             background: #94a3b8;
@@ -61,7 +61,12 @@
             border-radius: 8px;
             border: 1px solid #ddd;
             margin-top: 1rem;
-            display: none; /* vises når posisjon er klar */
+            display: none;
+        }
+        .vibrasjons-notat {
+            font-size: 0.8rem;
+            color: #666;
+            margin-top: 0.3rem;
         }
     </style>
 </head>
@@ -69,46 +74,71 @@
     <div class="kort">
         <h2>Min posisjon</h2>
         <button id="knapp">Vis posisjon</button>
+        <button id="vibrerKnapp">Vibrer</button>
         <div id="info" class="info" style="display: none;"></div>
         <div id="kart"></div>
+        <div class="vibrasjons-notat" id="vibrasjonsStatus"></div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         const knapp = document.getElementById('knapp');
+        const vibrerKnapp = document.getElementById('vibrerKnapp');
         const info = document.getElementById('info');
         const kartBeholder = document.getElementById('kart');
+        const vibrasjonsStatus = document.getElementById('vibrasjonsStatus');
         let kart = null;
         let marker = null;
 
         function vibrer(monster) {
-            if (navigator.vibrate) navigator.vibrate(monster);
+            if (navigator.vibrate) {
+                navigator.vibrate(monster);
+            }
+        }
+
+        function vibrerTest() {
+            if (navigator.vibrate) {
+                // Lengre og tydeligere mønster: 300ms vibrasjon, pause, 300ms
+                navigator.vibrate([300, 100, 300]);
+                vibrasjonsStatus.textContent = '';
+                // Vis kort bekreftelse i infoboksen
+                info.style.display = 'block';
+                info.classList.remove('feil');
+                info.textContent = 'Telefonen vibrerer nå.';
+                setTimeout(() => {
+                    if (info.textContent === 'Telefonen vibrerer nå.') {
+                        info.style.display = 'none';
+                    }
+                }, 1500);
+            } else {
+                // Vibrering støttes ikke – gi beskjed
+                vibrasjonsStatus.textContent = 'Vibrering støttes ikke på denne enheten.';
+                // Vis melding i infoboksen også
+                info.style.display = 'block';
+                info.classList.add('feil');
+                info.textContent = 'Vibrering er ikke tilgjengelig på din enhet/nettleser (f.eks. iPhone støtter ikke dette).';
+                // Fjern meldingen etter 3 sekunder
+                setTimeout(() => {
+                    if (info.textContent.includes('Vibrering er ikke tilgjengelig')) {
+                        info.style.display = 'none';
+                    }
+                }, 3000);
+            }
         }
 
         function opprettKart(lat, lng) {
-            // Fjern eksisterende kart hvis det allerede finnes
             if (kart) {
                 kart.remove();
                 kart = null;
             }
-
-            // Vis kartbeholderen
             kartBeholder.style.display = 'block';
-
-            // Opprett kart sentrert på posisjonen
             kart = L.map('kart').setView([lat, lng], 15);
-
-            // Legg til OpenStreetMap-fliser
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             }).addTo(kart);
-
-            // Legg til markør
             marker = L.marker([lat, lng]).addTo(kart)
                 .bindPopup(`<b>Min posisjon</b><br>${lat.toFixed(6)}, ${lng.toFixed(6)}`)
                 .openPopup();
-
-            // Tving kartet til å oppdatere størrelsen (løser renderingsproblemer)
             setTimeout(() => kart.invalidateSize(), 100);
         }
 
@@ -117,17 +147,12 @@
             const lng = posisjon.coords.longitude;
             const latRetning = lat >= 0 ? 'N' : 'S';
             const lngRetning = lng >= 0 ? 'E' : 'W';
-
-            // Vis tekstinformasjon
             info.style.display = 'block';
             info.classList.remove('feil');
             info.innerHTML = 
                 `Breddegrad: ${Math.abs(lat).toFixed(6)}° ${latRetning}<br>
                  Lengdegrad: ${Math.abs(lng).toFixed(6)}° ${lngRetning}`;
-
-            // Opprett/oppdater kart
             opprettKart(lat, lng);
-
             vibrer(200);
         }
 
@@ -135,14 +160,11 @@
             info.style.display = 'block';
             info.classList.add('feil');
             info.textContent = melding;
-
-            // Skjul kartet ved feil
             kartBeholder.style.display = 'none';
             if (kart) {
                 kart.remove();
                 kart = null;
             }
-
             vibrer([150, 80, 150]);
         }
 
@@ -152,10 +174,8 @@
                 return;
             }
             if (knapp.disabled) return;
-
             knapp.disabled = true;
             knapp.textContent = 'Henter...';
-
             navigator.geolocation.getCurrentPosition(
                 pos => {
                     visPosisjon(pos);
@@ -176,6 +196,12 @@
         }
 
         knapp.addEventListener('click', hentPosisjon);
+        vibrerKnapp.addEventListener('click', vibrerTest);
+
+        // Sjekk vibrasjonsstøtte ved oppstart og vis en liten notis
+        if (!navigator.vibrate) {
+            vibrasjonsStatus.textContent = 'Vibrering støttes ikke på denne enheten.';
+        }
     </script>
 </body>
 </html>
