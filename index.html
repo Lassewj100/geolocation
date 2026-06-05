@@ -36,10 +36,14 @@
             border-radius: 6px;
             cursor: pointer;
             margin: 0.5rem;
+            transition: background 0.15s, transform 0.1s ease;
         }
         button:disabled {
             background: #94a3b8;
             cursor: wait;
+        }
+        button:active {
+            transform: scale(0.96);
         }
         .info {
             font-size: 1rem;
@@ -49,6 +53,11 @@
             border-radius: 6px;
             border: 1px solid #e2e8f0;
             margin: 1rem 0;
+            display: none;
+            text-align: left;
+        }
+        .info.visible {
+            display: block;
         }
         .feil {
             color: #b91c1c;
@@ -63,10 +72,24 @@
             margin-top: 1rem;
             display: none;
         }
-        .vibrasjons-notat {
-            font-size: 0.8rem;
-            color: #666;
-            margin-top: 0.3rem;
+        .ekstra-knapper {
+            display: none;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+        .ekstra-knapper.visible {
+            display: flex;
+        }
+        /* Puls-animasjon */
+        @keyframes puls {
+            0% { transform: scale(1); }
+            50% { transform: scale(0.95); }
+            100% { transform: scale(1); }
+        }
+        .puls {
+            animation: puls 0.2s ease;
         }
     </style>
 </head>
@@ -74,70 +97,91 @@
     <div class="kort">
         <h2>Min posisjon</h2>
         <button id="knapp">Vis posisjon</button>
-        <button id="vibrerKnapp">Vibrer</button>
-        <div id="info" class="info" style="display: none;"></div>
+        <button id="lydKnapp">Test lyd</button>
+        <div id="info" class="info"></div>
         <div id="kart"></div>
-        <div class="vibrasjons-notat" id="vibrasjonsStatus"></div>
+        <div class="ekstra-knapper" id="ekstraKnapper">
+            <button id="delKnapp">Del posisjon</button>
+            <button id="kopierKnapp">Kopier koordinater</button>
+            <button id="mapsKnapp">Google Maps</button>
+        </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
+        // DOM-elementer
         const knapp = document.getElementById('knapp');
-        const vibrerKnapp = document.getElementById('vibrerKnapp');
+        const lydKnapp = document.getElementById('lydKnapp');
         const info = document.getElementById('info');
         const kartBeholder = document.getElementById('kart');
-        const vibrasjonsStatus = document.getElementById('vibrasjonsStatus');
+        const ekstraKnapper = document.getElementById('ekstraKnapper');
+        const delKnapp = document.getElementById('delKnapp');
+        const kopierKnapp = document.getElementById('kopierKnapp');
+        const mapsKnapp = document.getElementById('mapsKnapp');
+
         let kart = null;
         let marker = null;
+        let sistePosisjon = null; // { lat, lng, latRetning, lngRetning }
 
-        function vibrer(monster) {
-            if (navigator.vibrate) {
-                navigator.vibrate(monster);
+        // Lyd med AudioContext (fungerer på iPhone)
+        let audioCtx = null;
+        function getAudioContext() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            // Lås opp lyd etter brukerinteraksjon
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            return audioCtx;
+        }
+
+        function spillPip(frekvens = 800, varighet = 100, type = 'sine') {
+            try {
+                const ctx = getAudioContext();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(frekvens, ctx.currentTime);
+                gain.gain.setValueAtTime(0.2, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + varighet / 1000);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + varighet / 1000);
+            } catch (e) {
+                // Lyd ikke tilgjengelig, ignorer
             }
         }
 
-        function vibrerTest() {
-            if (navigator.vibrate) {
-                // Lengre og tydeligere mønster: 300ms vibrasjon, pause, 300ms
-                navigator.vibrate([300, 100, 300]);
-                vibrasjonsStatus.textContent = '';
-                // Vis kort bekreftelse i infoboksen
-                info.style.display = 'block';
-                info.classList.remove('feil');
-                info.textContent = 'Telefonen vibrerer nå.';
-                setTimeout(() => {
-                    if (info.textContent === 'Telefonen vibrerer nå.') {
-                        info.style.display = 'none';
-                    }
-                }, 1500);
-            } else {
-                // Vibrering støttes ikke – gi beskjed
-                vibrasjonsStatus.textContent = 'Vibrering støttes ikke på denne enheten.';
-                // Vis melding i infoboksen også
-                info.style.display = 'block';
-                info.classList.add('feil');
-                info.textContent = 'Vibrering er ikke tilgjengelig på din enhet/nettleser (f.eks. iPhone støtter ikke dette).';
-                // Fjern meldingen etter 3 sekunder
-                setTimeout(() => {
-                    if (info.textContent.includes('Vibrering er ikke tilgjengelig')) {
-                        info.style.display = 'none';
-                    }
-                }, 3000);
-            }
+        function lydSuksess() {
+            spillPip(800, 120, 'sine');
         }
 
+        function lydFeil() {
+            spillPip(400, 100, 'square');
+            setTimeout(() => spillPip(400, 100, 'square'), 150);
+        }
+
+        // Visuell puls
+        function pulser(element) {
+            element.classList.add('puls');
+            setTimeout(() => element.classList.remove('puls'), 200);
+        }
+
+        // Kartfunksjoner
         function opprettKart(lat, lng) {
             if (kart) {
                 kart.remove();
                 kart = null;
             }
             kartBeholder.style.display = 'block';
-            kart = L.map('kart').setView([lat, lng], 15);
+            kart = L.map('kart').setView([lat, lng], 16);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                attribution: '&copy; OpenStreetMap'
             }).addTo(kart);
             marker = L.marker([lat, lng]).addTo(kart)
-                .bindPopup(`<b>Min posisjon</b><br>${lat.toFixed(6)}, ${lng.toFixed(6)}`)
+                .bindPopup('Min posisjon')
                 .openPopup();
             setTimeout(() => kart.invalidateSize(), 100);
         }
@@ -147,25 +191,41 @@
             const lng = posisjon.coords.longitude;
             const latRetning = lat >= 0 ? 'N' : 'S';
             const lngRetning = lng >= 0 ? 'E' : 'W';
-            info.style.display = 'block';
+
+            sistePosisjon = { lat, lng, latRetning, lngRetning };
+
+            // Vis info-boks
             info.classList.remove('feil');
-            info.innerHTML = 
-                `Breddegrad: ${Math.abs(lat).toFixed(6)}° ${latRetning}<br>
-                 Lengdegrad: ${Math.abs(lng).toFixed(6)}° ${lngRetning}`;
+            info.classList.add('visible');
+            info.innerHTML = `
+                <div><strong>Breddegrad:</strong> ${Math.abs(lat).toFixed(6)}° ${latRetning}</div>
+                <div><strong>Lengdegrad:</strong> ${Math.abs(lng).toFixed(6)}° ${lngRetning}</div>
+            `;
+
+            // Vis kart
             opprettKart(lat, lng);
-            vibrer(200);
+
+            // Vis ekstra knapper
+            ekstraKnapper.classList.add('visible');
+
+            // Tilbakemelding
+            lydSuksess();
+            pulser(knapp);
         }
 
         function visFeil(melding) {
-            info.style.display = 'block';
-            info.classList.add('feil');
+            info.classList.add('visible', 'feil');
             info.textContent = melding;
             kartBeholder.style.display = 'none';
             if (kart) {
                 kart.remove();
                 kart = null;
             }
-            vibrer([150, 80, 150]);
+            ekstraKnapper.classList.remove('visible');
+            sistePosisjon = null;
+
+            lydFeil();
+            pulser(knapp);
         }
 
         function hentPosisjon() {
@@ -174,8 +234,12 @@
                 return;
             }
             if (knapp.disabled) return;
+
             knapp.disabled = true;
             knapp.textContent = 'Henter...';
+            info.classList.remove('visible', 'feil');
+            ekstraKnapper.classList.remove('visible');
+
             navigator.geolocation.getCurrentPosition(
                 pos => {
                     visPosisjon(pos);
@@ -191,17 +255,73 @@
                     knapp.disabled = false;
                     knapp.textContent = 'Vis posisjon';
                 },
-                { enableHighAccuracy: true }
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
             );
         }
 
-        knapp.addEventListener('click', hentPosisjon);
-        vibrerKnapp.addEventListener('click', vibrerTest);
+        // Test lyd-knapp
+        lydKnapp.addEventListener('click', () => {
+            spillPip(600, 100, 'triangle');
+            pulser(lydKnapp);
+        });
 
-        // Sjekk vibrasjonsstøtte ved oppstart og vis en liten notis
-        if (!navigator.vibrate) {
-            vibrasjonsStatus.textContent = 'Vibrering støttes ikke på denne enheten.';
-        }
+        // Del posisjon (Web Share API – iPhone)
+        delKnapp.addEventListener('click', () => {
+            if (!sistePosisjon) return;
+            const { lat, lng, latRetning, lngRetning } = sistePosisjon;
+            const tekst = `Min posisjon: ${Math.abs(lat).toFixed(6)}° ${latRetning}, ${Math.abs(lng).toFixed(6)}° ${lngRetning}`;
+            const url = `https://www.google.com/maps?q=${lat},${lng}`;
+
+            if (navigator.share) {
+                navigator.share({
+                    title: 'Min posisjon',
+                    text: tekst,
+                    url: url
+                }).catch(() => {});
+            } else {
+                // Fallback – kopier
+                navigator.clipboard.writeText(tekst + '\n' + url).then(() => {
+                    alert('Koordinater og lenke kopiert til utklippstavlen.');
+                }).catch(() => {
+                    alert('Deling ikke støttet.\n' + tekst + '\n' + url);
+                });
+            }
+            pulser(delKnapp);
+            spillPip(700, 80, 'sine');
+        });
+
+        // Kopier koordinater
+        kopierKnapp.addEventListener('click', () => {
+            if (!sistePosisjon) return;
+            const { lat, lng, latRetning, lngRetning } = sistePosisjon;
+            const koordTekst = `${Math.abs(lat).toFixed(6)}° ${latRetning}, ${Math.abs(lng).toFixed(6)}° ${lngRetning}`;
+            navigator.clipboard.writeText(koordTekst).then(() => {
+                info.classList.remove('feil');
+                info.classList.add('visible');
+                info.innerHTML = 'Koordinater kopiert til utklippstavlen.';
+                setTimeout(() => {
+                    if (info.textContent === 'Koordinater kopiert til utklippstavlen.') {
+                        info.classList.remove('visible');
+                    }
+                }, 2000);
+            }).catch(() => {
+                alert('Kunne ikke kopiere. Prøv igjen.');
+            });
+            pulser(kopierKnapp);
+            spillPip(700, 80, 'sine');
+        });
+
+        // Åpne Google Maps
+        mapsKnapp.addEventListener('click', () => {
+            if (!sistePosisjon) return;
+            const { lat, lng } = sistePosisjon;
+            window.open(`https://www.google.com/maps?q=${lat},${lng}`, '_blank');
+            pulser(mapsKnapp);
+            spillPip(700, 80, 'sine');
+        });
+
+        // Hovedposisjonsknapp
+        knapp.addEventListener('click', hentPosisjon);
     </script>
 </body>
 </html>
